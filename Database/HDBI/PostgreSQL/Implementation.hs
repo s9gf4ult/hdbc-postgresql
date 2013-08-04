@@ -24,6 +24,8 @@ module Database.HDBI.PostgreSQL.Implementation
          -- * Connection functions
        , connectPostgreSQL
        , withPGConnection
+         -- * Statement functions
+       , pgAffectedRows
          -- * Data manipulating functions
        , sqlValueToNative
        , formatUTC
@@ -192,18 +194,6 @@ instance Statement PostgreStatement where
                                      then return StatementFetched
                                      else return StatementExecuted
     STFinished    -> return StatementFinished
-
-  affectedRows stmt = withMVar (stState stmt)
-                      $ \st -> do
-    let res = pgstGetResult "Statement is not executed or already finished" st
-    tpls <- PQ.cmdTuples res
-    case tpls of
-      Nothing -> withPGConnection (stConnection stmt) throwErrorMessage
-      Just "" -> return 0        -- when query was SELECT libPQ return empty string
-      Just r  -> let rx = TL.unpack $ decodeUTF8 r
-                 in case readMay rx of
-                   Just x -> return x
-                   Nothing -> throwIO $ SqlDriverError $ pgMsg $ "Could not read binding output as integer \"" ++ rx ++ "\""
 
   finish stmt = modifyMVar_ (stState stmt) doFinishStatement
 
@@ -496,6 +486,20 @@ throwResultError res = do
   errm <- throwNoMessage =<< PQ.resultErrorMessage res
   ef <- throwNoMessage =<< PQ.resultErrorField res PQ.DiagSqlstate
   throwIO $ SqlError (TL.unpack $ decodeUTF8 ef) (TL.unpack $ decodeUTF8 errm)
+
+-- | Get the count of rows affected by UPDATE, DELETE or INSERT query
+pgAffectedRows :: PostgreStatement -> IO Integer
+pgAffectedRows stmt = withMVar (stState stmt)
+                      $ \st -> do
+  let res = pgstGetResult "Statement is not executed or already finished" st
+  tpls <- PQ.cmdTuples res
+  case tpls of
+    Nothing -> withPGConnection (stConnection stmt) throwErrorMessage
+    Just "" -> return 0        -- when query was SELECT libPQ return empty string
+    Just r  -> let rx = TL.unpack $ decodeUTF8 r
+               in case readMay rx of
+                 Just x -> return x
+                 Nothing -> throwIO $ SqlDriverError $ pgMsg $ "Could not read binding output as integer \"" ++ rx ++ "\""
 
 
 -- | Establish new PostgreSQL connection

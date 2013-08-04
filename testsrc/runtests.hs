@@ -7,228 +7,60 @@
 
 module Runtests where
 
-import Control.Applicative
-import Data.AEq
-import Data.Decimal
-import Data.Fixed
-import Data.Int
-import Data.List
-import Data.Monoid
-import Data.Time
-import Data.UUID
-import Data.Word
+import Control.Exception (bracket)
 import Database.HDBI
 import Database.HDBI.PostgreSQL
+import Database.HDBI.Tests
 import System.Environment
 import System.Exit
 import Test.Framework
-import Test.Framework.Providers.HUnit
-import Test.Framework.Providers.QuickCheck2
-import Test.HUnit ((@?=), Assertion)
-import Test.QuickCheck
-import Test.QuickCheck.Assertions
-import Test.QuickCheck.Instances ()
-import qualified Data.ByteString as B
-import qualified Data.Set as S
 import qualified Data.Text.Lazy as TL
-import qualified Test.QuickCheck.Monadic as QM
-
-
-instance Arbitrary (DecimalRaw Integer) where
-  arbitrary = Decimal <$> arbitrary <*> arbitrary
-
-instance Arbitrary UUID where
-  arbitrary = fromWords
-              <$> arbitrary
-              <*> arbitrary
-              <*> arbitrary
-              <*> arbitrary
-
-runInsertSelect :: (FromSql a, ToSql a) => PostgreConnection -> Query -> a -> IO a
-runInsertSelect conn tname val = withTransaction conn $ do
-      runRaw conn "drop table if exists table1"
-      runRaw conn $ "create table table1 (val " <> tname <> ")"
-      run conn "insert into table1 (val) values (?)" [toSql val]
-      s <- prepare conn "select val from table1"
-      executeRaw s
-      (Just [res])<- fetchRow s
-      finish s
-      return $ fromSql res
-
-runInsertMany :: PostgreConnection -> [String] -> [[SqlValue]] -> IO [[SqlValue]]
-runInsertMany conn types values = withTransaction conn $ do
-  runRaw conn "drop table if exists table1"
-  runRaw conn $ pk $ "create table table1 (" ++ valnames ++ ")"
-  s <- prepare conn $ pk $ "insert into table1(" ++ colnames ++ ") values (" ++ (intersperse ',' $ replicate (length names) '?') ++")"
-  executeMany s values
-  finish s
-  s2 <- prepare conn $ pk $ "select " ++ colnames ++ " from table1"
-  executeRaw s2
-  fetchAllRows s2
   
-  where
-    pk = Query . TL.pack
-    names = map (("val"++) . show) [1..length types]
-    colnames = intercalate "," names
-    valnames = intercalate "," $ map (\(a, b) -> a ++ " " ++ b) $ zip names types
-
-setsEqual :: PostgreConnection -> [String] -> [[SqlValue]] -> Property
-setsEqual conn types values = QM.monadicIO $ do
-  ret <- QM.run $ runInsertMany conn types values
-  QM.stop $ (S.fromList values) ==? (S.fromList ret)
   
-preciseEqual :: (Eq a, Show a, FromSql a, ToSql a) => PostgreConnection -> Query -> a -> Property
-preciseEqual conn tname val = QM.monadicIO $ do
-  res <- QM.run $ runInsertSelect conn tname val
-  QM.stop $ res ?== val
 
+-- testAffectedRows :: PostgreConnection -> [Int32] -> Property
+-- testAffectedRows c is = QM.monadicIO $ do
+--   res <- QM.run $ withTransaction c $ do
+--     runRaw c "drop table if exists table1"
+--     runRaw c "create table table1 (val bigint)"
+--     runMany c "insert into table1(val) values (?)" $ map ((:[]) . toSql) is
 
-approxEqual :: (Show a, AEq a, FromSql a, ToSql a) => PostgreConnection -> Query -> a -> Property
-approxEqual conn tname val = QM.monadicIO $ do
-  res <- QM.run $ runInsertSelect conn tname val
-  QM.stop $ res ?~== val
-
-genTOD :: Gen TimeOfDay
-genTOD = roundTod <$> arbitrary
-
-genLT :: Gen LocalTime
-genLT = rnd <$> arbitrary
-  where
-    rnd x@(LocalTime {localTimeOfDay = t}) = x {localTimeOfDay = roundTod t}
-
--- | Generate Text without 'NUL' symbols
-genText :: Gen TL.Text
-genText = TL.filter fltr <$> arbitrary
-  where
-    fltr '\NUL' = False         -- NULL truncates C string when pass to libpq binding.
-    fltr _ = True
-
-genUTC :: Gen UTCTime
-genUTC = rnd <$> arbitrary
-  where
-    rnd x@(UTCTime {utctDayTime = d}) = x {utctDayTime = anyToMicro d}
-
-
--- | Strip TimeOfDay to microsecond precision
-roundTod :: TimeOfDay -> TimeOfDay
-roundTod x@(TimeOfDay {todSec = s}) = x {todSec = anyToMicro s}
-
-anyToMicro :: (Fractional b, Real a) => a -> b
-anyToMicro a = fromRational $ toRational ((fromRational $ toRational a) :: Micro)
-
-testG1 :: PostgreConnection -> Test
-testG1 c = testGroup "Can insert and select"
-           [ testProperty "Decimal" $ \(d :: Decimal) -> preciseEqual c "decimal(400,255)" d
-           , testProperty "Int32" $ \(i :: Int32) -> preciseEqual c "integer" i
-           , testProperty "Int64" $ \(i :: Int64) -> preciseEqual c "bigint"  i
-           , testProperty "Integer" $ \(i :: Integer) -> preciseEqual c "decimal(100,0)" i
-           , testProperty "Double" $ \(d :: Double) -> approxEqual c "double precision" d
-           , testProperty "Text" $ forAll genText $ \(t :: TL.Text) -> preciseEqual c "text" t
-           , testProperty "ByteString" $ \(b :: B.ByteString) -> preciseEqual c "bytea" b
-           , testProperty "Bool" $ \(b :: Bool) -> preciseEqual c "boolean" b
-           , testProperty "UUID" $ \(u :: UUID) -> preciseEqual c "uuid" u
-           , testProperty "BitField" $ \(w :: Word64) -> preciseEqual c "varbit" (BitField w)
-           , testProperty "UTCTime" $ forAll genUTC $ \(u :: UTCTime) -> preciseEqual c "timestamp with time zone" u
-           , testProperty "Day" $ \(d :: Day) -> preciseEqual c "date" d
-           , testProperty "TimeOfDay" $ forAll genTOD $ \(tod :: TimeOfDay) -> preciseEqual c "time" tod
-           , testProperty "LocalTime" $ forAll genLT $ \(lt :: LocalTime) -> preciseEqual c "timestamp without time zone" lt
-           , testProperty "Null" $ preciseEqual c "integer" SqlNull
-           , testProperty "Maybe Integer" $ \(val :: Maybe Integer) -> preciseEqual c "decimal(100,0)" val
-           , testProperty "Maybe ByteString" $ \(val :: Maybe B.ByteString) -> preciseEqual c "bytea" val
-           , testProperty "Insert many numbers" $ \(x :: [(Integer, Decimal)]) -> setsEqual c
-                                                                          ["decimal(100,0)", "decimal(400,255)"]
-                                                                          $ map (\(i, d) ->  [toSql i, toSql d]) x
-           , testProperty "Insert many text" $ \(x :: [(Maybe Integer, UUID, Maybe B.ByteString)]) -> setsEqual c
-                                                                                                      ["decimal(100,0)", "text", "bytea"]
-                                                                                                      $ map (\(i, u, b) ->  [toSql i, toSql u, toSql b]) x
-           ]
-
-testAffectedRows :: PostgreConnection -> [Int32] -> Property
-testAffectedRows c is = QM.monadicIO $ do
-  res <- QM.run $ withTransaction c $ do
-    runRaw c "drop table if exists table1"
-    runRaw c "create table table1 (val bigint)"
-    runMany c "insert into table1(val) values (?)" $ map ((:[]) . toSql) is
-
-    s2 <- prepare c "update table1 set val=10"
-    executeRaw s2
-    res <- affectedRows s2
-    finish s2
+--     s2 <- prepare c "update table1 set val=10"
+--     executeRaw s2
+--     res <- affectedRows s2
+--     finish s2
   
-    return res
-  QM.stop $ res ?== (genericLength is)
+--     return res
+--   QM.stop $ res ?== (genericLength is)
            
-testG2 :: PostgreConnection -> Test
-testG2 c = testGroup "Auxiliary functions"
-           [ testProperty "affectedRows" $ testAffectedRows c ]
+-- testG2 :: PostgreConnection -> Test
+-- testG2 c = testGroup "Auxiliary functions"
+--            [ testProperty "affectedRows" $ testAffectedRows c ]
 
+fields = TestFieldTypes
+         { tfDecimal = "decimal(600,300)"
+         , tfInteger = "decimal(300,0)"
+         , tfDouble = "double precision"
+         , tfText = "text"
+         , tfBlob = "bytea"
+         , tfBool = "boolean"
+         , tfBitField = "varbit"
+         , tfUUID = "uuid"
+         , tfUTCTime = "timestamp"
+         , tfLocalDate = "date"
+         , tfLocalTimeOfDay = "time"
+         , tfLocalTime = "timestamp without time zone"
+         }
 
-stmtStatus :: PostgreConnection -> Assertion
-stmtStatus c = do
-  runRaw c "drop table table1"
-  runRaw c "create table table1 (val bigint)" -- Just for postgre 9
-  s <- prepare c "select * from table1"
-  statementStatus s >>= (@?= StatementNew)
-  executeRaw s
-  statementStatus s >>= (@?= StatementExecuted)
-  _ <- fetchRow s
-  statementStatus s >>= (@?= StatementFetched)
-  finish s
-  statementStatus s >>= (@?= StatementFinished)
-  reset s
-  statementStatus s >>= (@?= StatementNew)
-
-inTransactionStatus :: PostgreConnection -> Assertion
-inTransactionStatus c = do
-  inTransaction c >>= (@?= False)
-  withTransaction c $ do
-    inTransaction c >>= (@?= True)
-
-connStatusGood :: PostgreConnection -> Assertion
-connStatusGood c = connStatus c >>= (@?= ConnOK)
-
-connClone :: PostgreConnection -> Assertion
-connClone c = do
-  newc <- clone c
-  connStatus newc >>= (@?= ConnOK)
-  withTransaction newc $ inTransaction c >>= (@?= False)
-  withTransaction c $ inTransaction newc >>= (@?= False)
-  disconnect newc
-  connStatus newc >>= (@?= ConnDisconnected)
-
-checkColumnNames :: PostgreConnection -> Assertion
-checkColumnNames c = do
-  withTransaction c $ do
-    runRaw c "drop table if exists table1"
-    runRaw c "create table table1 (val1 bigint, val2 bigint, val3 bigint)"
-    s <- prepare c "select val1, val2, val3 from table1"
-    executeRaw s
-    getColumnNames s >>= (@?= ["val1", "val2", "val3"])
-    getColumnsCount s >>= (@?= 3)
-    finish s
-  
-testG3 :: PostgreConnection -> Test
-testG3 c = testGroup "Fixed tests"
-           [ testCase "Statement status" $ stmtStatus c
-           , testCase "inTransaction return right value" $ inTransactionStatus c
-           , testCase "Connection status is good" $ connStatusGood c
-           , testCase "Connection clone works" $ connClone c
-           , testCase "Check driver name" $ hdbiDriverName c @?= "postgresql"
-           , testCase "Check transaction support" $ dbTransactionSupport c @?= True
-           , testCase "Check right column names" $ checkColumnNames c
-           ]
 
 main :: IO ()
 main = do
   a <- getArgs
   case a of
-    (conn:args) -> do
-      c <- connectPostgreSQL $ TL.pack conn
-      (flip defaultMainWithArgs) args [ testG1 c
-                                      , testG2 c
-                                      , testG3 c
-                                      ]
-      disconnect c
+    (conn:args) -> bracket
+                   (connectPostgreSQL $ TL.pack conn)
+                   disconnect
+                   $ \c -> (flip defaultMainWithArgs) args [ allTests fields c ]
 
     _ -> do
       mapM_ putStrLn [ "Need at least one argument as connection string"

@@ -25,6 +25,7 @@ module Database.HDBI.PostgreSQL
        , PostgreStatement(..)
        , PGStatementState(..)
        , connectPostgreSQL
+       , pgAffectedRows
        ) where
 
 import Database.HDBI.PostgreSQL.Implementation

@@ -1,5 +1,5 @@
 Name: hdbi-postgresql
-Version: 1.0.0
+Version: 1.1.0
 License: BSD3
 Maintainer: Aleksey Uymanov <s9gf4ult@gmail.com>
 Author: John Goerzen
@@ -26,7 +26,7 @@ Library
                , attoparsec
                , blaze-builder
                , bytestring
-               , hdbi >= 1.0.0
+               , hdbi >= 1.1.0
                , mtl
                , old-locale
                , postgresql-libpq
@@ -50,14 +50,15 @@ test-suite runtests
 
    ghc-options:   -Wall -fno-warn-orphans -main-is Runtests
    build-depends:  base >= 3 && < 5
-                 , Decimal
+                 , Decimal >= 0.2.1
                  , HUnit
                  , QuickCheck
                  , attoparsec
                  , blaze-builder
                  , bytestring
                  , containers
-                 , hdbi >= 1.0.0
+                 , hdbi >= 1.1.0
+                 , hdbi-tests >= 1.1.0
                  , ieee754
                  , mtl
                  , old-locale
@@ -82,14 +83,14 @@ test-suite puretests
 
    ghc-options:   -Wall -fno-warn-orphans -main-is Puretests
    build-depends:  base >= 3 && < 5
-                 , Decimal
+                 , Decimal >= 0.2.1
                  , HUnit
                  , QuickCheck
                  , attoparsec
                  , blaze-builder
                  , bytestring
                  , derive
-                 , hdbi >= 1.0.0
+                 , hdbi >= 1.1.0
                  , mtl
                  , old-locale
                  , postgresql-libpq
