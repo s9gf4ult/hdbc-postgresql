@@ -16,13 +16,15 @@ import Database.HDBI.Tests
 import System.Environment
 import System.Exit
 import Test.Framework
+import Test.Framework.Providers.HUnit
 import Test.Framework.Providers.QuickCheck2
+import Test.HUnit ((@?=))
 import Test.QuickCheck
 import Test.QuickCheck.Assertions
 import qualified Data.Text.Lazy as TL
 import qualified Test.QuickCheck.Monadic as QM
-  
-  
+
+
 
 testAffectedRows :: PostgreConnection -> [Int32] -> Property
 testAffectedRows c is = QM.monadicIO $ do
@@ -33,12 +35,16 @@ testAffectedRows c is = QM.monadicIO $ do
     withStatement c "update table2 set val=10" $ \s -> do
       executeRaw s
       pgAffectedRows s
-  
+
   QM.stop $ res ?== (genericLength is)
-           
+
 pgTests :: PostgreConnection -> Test
 pgTests c = testGroup "Auxiliary functions"
-           [ testProperty "affectedRows" $ testAffectedRows c ]
+           [ testProperty "affectedRows" $ testAffectedRows c
+           , testCase "Check driver name" $ hdbiDriverName c @?= "postgresql"
+           , testCase "Check transaction support" $ dbTransactionSupport c @?= True
+           ]
+
 
 fields :: TestFieldTypes
 fields = TestFieldTypes
