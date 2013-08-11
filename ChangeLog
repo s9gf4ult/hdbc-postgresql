@@ -1,0 +1,8 @@
+hdbi-posgresql-1.1.0
+
+	* Tests moved to hdbi-tests
+
+	* method `affectedRows` removed from Statement and renamed to
+	pgAffectedRows function
+
+	* ChangeLog added
