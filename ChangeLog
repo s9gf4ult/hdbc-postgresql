@@ -1,3 +1,7 @@
+hdbi-posgresql-1.1.1
+
+	* Tests: sqlToNativeAndBack: fixed Double comparsion
+
 hdbi-posgresql-1.1.0
 
 	* Tests moved to hdbi-tests

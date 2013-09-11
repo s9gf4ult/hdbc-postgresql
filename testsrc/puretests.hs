@@ -58,7 +58,11 @@ sqlToNativeAndBack val = QM.monadicIO $ do
     case nat of
       Nothing -> return SqlNull
       Just (o, b, f) -> nativeToSqlValue b f o
-  QM.stop $ res ?== val
+  QM.stop $ scompare val res
+  where
+    scompare (SqlDouble a) (SqlDouble b) = a ~==? b
+    scompare a b = a ==? b
+
 
 convertionTests :: Test
 convertionTests = testGroup "Can convert to and back"
@@ -234,7 +238,7 @@ fullQueryGen = do
 
 checkFullQueryGen :: (Query, B.ByteString) -> QP.Result
 checkFullQueryGen (q, res) = (buildSqlQuery q) ?== res
-    
+
 
 parserProperties :: Test
 parserProperties = testGroup "Parser properties"
