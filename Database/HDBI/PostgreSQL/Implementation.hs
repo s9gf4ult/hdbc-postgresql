@@ -201,9 +201,9 @@ instance Statement PostgreStatement where
     _ <- doFinishStatement st
     return STNew
 
-  fetchRow stmt = modifyMVar (stState stmt) _fetchRow
+  fetch stmt = modifyMVar (stState stmt) _fetch
     where
-      _fetchRow STExecuted {pgstResult = result} = do
+      _fetch STExecuted {pgstResult = result} = do
         fields <- PQ.nfields result
         s <- STFetching
              <$> return result
@@ -212,9 +212,9 @@ instance Statement PostgreStatement where
              <*> forM [0..fields-1] (PQ.ftype result)
              <*> PQ.ntuples result
              <*> (return $ PQ.toRow (0 :: Int))
-        _fetchRow s
+        _fetch s
 
-      _fetchRow x@(STFetching result cols formats oids tpls current) =
+      _fetch x@(STFetching result cols formats oids tpls current) =
         if current >= tpls
         then return (x, Nothing)
         else do
@@ -225,7 +225,7 @@ instance Statement PostgreStatement where
               Just val -> nativeToSqlValue val fmt oid
           return (x {pgstCurrent = current + 1}, Just ret)
 
-      _fetchRow x = throwIO
+      _fetch x = throwIO
                     $ SqlDriverError
                     $ pgMsg $ "Statement is in wrong state (" ++ pgstName x ++ ") to fetch row"
 
