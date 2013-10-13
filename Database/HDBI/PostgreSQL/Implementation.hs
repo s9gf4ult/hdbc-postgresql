@@ -223,7 +223,7 @@ instance Statement PostgreStatement where
             case mval of
               Nothing -> return SqlNull
               Just val -> nativeToSqlValue val fmt oid
-          return (x {pgstCurrent = current + 1}, Just ret)
+          return (x {pgstCurrent = current + 1}, Just $ fromRow ret)
 
       _fetch x = throwIO
                     $ SqlDriverError
@@ -528,21 +528,21 @@ encodeUTF8 = toByteString . fromLazyText
 decodeUTF8 :: B.ByteString -> TL.Text
 decodeUTF8 x = TL.decodeUtf8 $ BL.fromChunks [x]
 
-pgRun :: PostgreConnection -> Query -> [SqlValue] -> IO PQ.Result
+pgRun :: (ToRow row) => PostgreConnection -> Query -> row -> IO PQ.Result
 pgRun conn query values = withPGConnection conn $ \con -> do
   r <- PQ.execParams con (buildSqlQuery query) binvals PQ.Text
   getPGResult con r     -- Throwing error if failed
   where
-    binvals = map sqlValueToNative values
+    binvals = map sqlValueToNative $ toRow values
 
 pgRunRaw :: PostgreConnection -> Query -> IO PQ.Result
 pgRunRaw conn query = withPGConnection conn $ \con -> do
     r <- PQ.exec con $ buildSqlQuery query
     getPGResult con r
 
-pgRunMany :: PostgreConnection -> Query -> [[SqlValue]] -> IO ()
+pgRunMany :: (ToRow row) => PostgreConnection -> Query -> [row] -> IO ()
 pgRunMany conn query values = withPGConnection conn $ \con -> do
-  forM_ values $ \val -> do
+  forM_ (map toRow values) $ \val -> do
     r <- PQ.execParams con binq (binv val) PQ.Text
     res <- getPGResult con r
     PQ.unsafeFreeResult res

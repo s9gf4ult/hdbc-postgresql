@@ -33,7 +33,7 @@ testAffectedRows c is = QM.monadicIO $ do
     runRaw c "create table table2 (val bigint)"
     runMany c "insert into table2(val) values (?)" $ map ((:[]) . toSql) is
     withStatement c "update table2 set val=10" $ \s -> do
-      executeRaw s
+      execute s ()
       pgAffectedRows s
 
   QM.stop $ res ?== (genericLength is)
